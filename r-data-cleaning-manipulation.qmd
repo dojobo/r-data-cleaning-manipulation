@@ -1,0 +1,499 @@
+---
+title: "Data Cleaning and Manipulation in R"
+author: "Dominic Bordelon, Research Data Librarian, University of Pittsburgh Library System"
+date: "February 6, 2023"
+format: 
+  html: default
+editor: visual
+---
+
+```{r}
+#| output: false
+
+install.packages(c("tidyverse", "readxl", "writexl", "palmerpenguins", "janitor", "naniar", "validate"))
+library(tidyverse)
+library(readxl)
+library(writexl)
+library(palmerpenguins)
+library(janitor)
+library(naniar)
+library(validate)
+library(lubridate)
+```
+
+# Data Cleaning and Manipulation in R
+
+![Artwork by \@allison_horst](images/data_cowboy.png){fig-alt="A green fuzzy monster in a cowboy hat and mustache, lassoing a group of unruly data tables while riding a blue fuzzy monster." fig-align="center"}
+
+## Agenda
+
+1.  Tabular data formats and reading them in R
+2.  The Tidy Data concept
+3.  Columns: rename, split, create
+4.  Handle missing values
+5.  Filtering and summarizing
+6.  Reshape data (pivot)
+
+Most of what we are doing today is in the {dplyr} and {tidyr} packages. These PDF cheat sheets are a handy reference: [dplyr](https://raw.githubusercontent.com/rstudio/cheatsheets/main/data-transformation.pdf), [tidyr](https://raw.githubusercontent.com/rstudio/cheatsheets/main/tidyr.pdf)
+
+## About the trainer
+
+**Dominic Bordelon**, Research Data Librarian\
+University Library System -- Digital Scholarship Services\
+[dbordelon\@pitt.edu](mailto:dbordelon@pitt.edu), <https://pitt.libguides.com/dominicbordelon>
+
+Previously: background in humanities and libraries + self-taught coding interest ➝ library IT and web development (\~5 yrs) ➝ Research Data Librarian at Pitt since Nov 2019
+
+Support for various "data work"...
+
+-   data management planning (esp. for grant proposals)
+-   data cleaning, processing, analysis, visualization using tools like R and Python
+-   project version control using Git and GitHub
+-   understanding IT terms, how the internet works (HTTP, APIs), etc., as it pertains to your research
+-   data sharing and other Open Science topics
+
+...via consultations ([book here](https://pitt.libcal.com/appointments/research_data_librarian)); workshops for the Pitt community; on-request training
+
+[Carpentries](https://carpentries.org/)[^1] Certified Instructor
+
+[^1]: The Carpentries is a community which "builds global capacity in essential data and computational skills for conducting efficient, open, and reproducible research" through evidence-based instructor and mentor training and open learning materials ([link](https://carpentries.org/about/)). It is fiscally sponsored by Community Initiatives, a CA-based 501(c)(3) nonprofit.
+
+Returning part-time undergrad in Ecology
+
+## Loading data files
+
+Using `{readr}` and `{readxl}` ([cheat sheet](https://raw.githubusercontent.com/rstudio/cheatsheets/main/data-import.pdf))
+
+### Tabular data: CSV, TSV, XLSX
+
+While you may be most familiar with Excel files (`.xlsx` filenames) for spreadsheets, plain-text *delimited* files are often the format of choice. CSV (`.csv` filenames), comma-separated values, is the most popular.
+
++---------------------------------------------------------------------------------------------+--------------------------------------------------------------+
+| Pros of CSV vs. Excel                                                                       | Cons of CSV vs. Excel                                        |
++=============================================================================================+==============================================================+
+| $\bullet$ Open in any tabular data software, or even a text editor; non-proprietary format\ | $\bullet$ No formatting\                                     |
+| $\bullet$ Small file size (although there are smaller)\                                     | $\bullet$ No formulas, only their outputs\                   |
+| $\bullet$ Long-term preservation standard\                                                  | $\bullet$ No charts/graphics, pivot tables, etc.\            |
+| $\bullet$ No formulas or macros; nothing hidden\                                            | $\bullet$ Only one worksheet per file\                       |
+| $\bullet$ Less likely to "break" or become corrupted than an Excel file                     | $\bullet$ Excel can be annoying about opening them\          |
+|                                                                                             | $\bullet$ Occasionally, issues with improperly generated CSV |
++---------------------------------------------------------------------------------------------+--------------------------------------------------------------+
+
+Comma-separated values:
+
+```{csv}
+response_id,date,respondent_id,question_number,response
+1,2022-02-01,27,3,"B"
+1,2022-02-01,27,4,"C"
+```
+
+First row is typically header; comma (or other delimiter) for each column; newline for each row.
+
+Tab-separated values:
+
+```{tsv}
+response_id date  respondent_id question_number response
+1 2022-02-01  27  3 "B"
+1 2022-02-01  27  4 "C"
+```
+
+```{r}
+# a sample of Allegheny County air quality data, downloaded from wprdc.org:
+air_quality <- read_csv("data/air-quality.csv")
+air_quality
+
+# important tweaks: header (none and/or supply your own); col_types; na
+
+emissions <- read_tsv("data/sdg_13_10.tsv")
+emissions
+
+#excel_sheets("file.xlsx") # list of sheets 
+#read_excel()
+
+#read_excel(sheets=c())
+
+```
+
+Other things you can configure in `{readr}` when importing data: provide your own header; skip lines; read a subset of lines; specify decimal marks; select only certain columns for import; read multiple files into a single table.
+
+### Reading Excel files
+
+You can use the `{readxl}` package to read `.xlsx` files. Because there are potentially many parameters, I like to use RStudio's Import Dataset feature for a graphical interface, which generates the code I need. Then I paste that code into my notebook and run it.
+
+```{r}
+messy_bp <- read_excel("data/messy_bp.xlsx", 
+                       range = "A4:M24")
+View(messy_bp)
+```
+
+### Looking around
+
+Our messy data today are [messy_bp from the {medicaldata} package](https://github.com/higgi13425/medicaldata#available-messy-datasets-beta). Our clean data are penguins from [{palmerpenguins}](https://allisonhorst.github.io/palmerpenguins/).
+
+Here are some ways to superficially browse/examine a dataset:
+
+```{r}
+# 🐧
+data(penguins)
+# str() is a generic function, to examine the structure of any object
+# it is also what appears in the Environment pane
+str(penguins)
+# glimpse() is a tidyverse variation specific for dataframes
+glimpse(penguins)
+
+# calling an object prints some representation of it
+penguins
+
+# Excel-like view (note interactive features)
+View(penguins)  
+
+head(penguins)  # fetch first 6 rows
+tail(penguins, n=20)  # fetch last 20 rows
+
+penguins %>% 
+  slice_sample(n=20)  # extract ("slice") 20 random rows
+
+# sorting!
+# using the dplyr::arrange() function:
+penguins %>% 
+  arrange(bill_length_mm)  # arrange by bill length, ascending
+penguins %>% 
+  arrange(desc(body_mass_g))  # body mass descending (heaviest first)
+penguins %>% 
+  arrange(island, species)  # arrange first by island, then by species
+
+# see a summary of each variable in an object
+# for numerics: 6-number distribution summary
+summary(penguins)
+
+# note that similar to str(), summary() is a generic function which may have different implementation for different types of objects
+```
+
+```{r}
+# 🩸
+str(messy_bp)
+glimpse(messy_bp)
+messy_bp
+View(messy_bp)  
+
+head(messy_bp)  
+tail(messy_bp, n=20)  
+
+summary(messy_bp)
+```
+
+### Other types of data
+
+Here are packages you can check out for other types of data:
+
+-   web APIs: `{httr}`
+-   web scraping: `{rvest}`
+-   google sheets: `{googlesheets4}`
+-   SPSS, Stata, SAS files: `{haven}`
+-   databases: `{DBI}`
+-   json: `{jsonlite}`
+-   XML: `{xml2}`
+-   plain text: `readr::read_lines()`
+-   geospatial data (e.g., shapefiles): `{sf}, {terra}`
+
+### Important syntax sidebar: the pipe, `%>%`
+
+The **pipe** is typed as **`%>%`** or using the (Win) **Ctrl+Shift+M** or (macOS) **Cmd+Shift+M** keyboard shortcut. Provided by `{magrittr}` and used almost everywhere in the tidyverse.
+
+What does it do? `expressionA %>% functionB()`, which you can read as "expressionA and then functionB," passes the output of `expressionA` as an implicit first argument of `functionB()`:
+
+```{r}
+penguins %>% 
+  arrange(bill_length_mm)
+
+# writing the above without a pipe
+arrange(penguins, bill_length_mm)
+
+# so what? compare once we start chaining (piping) multiple functions:
+
+# select columns, and then sort by body_mass_g (descending), and then View the result:
+penguins %>% 
+  select(species, body_mass_g, sex) %>% 
+  arrange(desc(body_mass_g)) %>% 
+  View()
+
+# doing the same without the pipe:
+View(arrange(select(penguins, species, body_mass_g, sex), desc(body_mass_g)))
+
+# ^ increasingly illegible
+# another alternative is to write shorter lines of code without nesting, but then you'll have a lot of intermediate objects in your environment.
+```
+
+### and what about `<-` for object assignment? Can I use `=` instead?
+
+```{r}
+area <- 16 * 4
+area
+area = 16 * 4
+area
+```
+
+**Yes, but** `<-` is recommended, because:
+
+1.  It is community convention, which is important when you read others' code
+2.  Besides object assignment, `=` in R is also used with *named arguments*; it can be visually helpful to separate these different functionalities with different symbols, `<-` and `=` respectively.
+
+Keyboard shortcuts to type **`<-`**: (Win) **Alt+-** or (macOS) **Option+-**
+
+------------------------------------------------------------------------
+
+## The Tidy Data concept
+
+![Illustrations from the [Openscapes](https://www.openscapes.org/) blog [Tidy Data for reproducibility, efficiency, and collaboration](https://www.openscapes.org/blog/2020/10/12/tidy-data/) by Julia Lowndes and Allison Horst](images/tidydata_1.jpg)
+
+![Illustrations from the [Openscapes](https://www.openscapes.org/) blog [Tidy Data for reproducibility, efficiency, and collaboration](https://www.openscapes.org/blog/2020/10/12/tidy-data/) by Julia Lowndes and Allison Horst](images/tidydata_3.jpg)
+
+------------------------------------------------------------------------
+
+## Checking for missingness and validating raw data
+
+You should know about the existence of missing values in your data. We can check for them both numerically and graphically. The [{naniar}](http://naniar.njtierney.com/) package is useful here.
+
+Missing values (`NA`) [might]{.underline} need:
+
+-   to be replaced with a known, fixed value (e.g., zero)---use `replace_na()` or `coalesce()`
+-   to have their rows "dropped" from analysis---use `drop_na(col_name)`
+-   to be substituted with an imputed value---but only if you know what you're doing! (and only when predicting, never for explanation/inference)
+-   to be left as-is, but taken into account for arithmetic operations (e.g., `mean()`)a---look in documentation for a function parameter like `na.rm = TRUE`
+
+```{r}
+# 🐧
+# how many values are missing? complete?
+penguins %>% n_miss()
+# see also n_complete(), pct_miss(), pct_complete()
+
+# summary of each variable's missing values:
+penguins %>% miss_var_summary()
+# tabulate according to how many variables in a case are missing:
+penguins %>% miss_var_table()
+
+# summarize the missingness in each case:
+penguins %>% miss_case_summary()
+# tabulate cases by number of missing variables:
+penguins %>% miss_case_table()
+
+# visualizations!
+
+# scatter plot of body mass and bill length, with missing plotted in margins:
+penguins %>%
+  ggplot(aes(body_mass_g, bill_length_mm)) +
+  geom_miss_point()
+
+vis_miss(penguins)
+gg_miss_var(penguins)
+gg_miss_case(penguins)
+
+# to visualize missingness in factors (categorical variables):
+gg_miss_fct(penguins, fct=species)
+
+# an upset plot allows you to see relationships:
+gg_miss_upset(penguins)
+```
+
+naniar also implements [Little's (1988) MCAR test](http://naniar.njtierney.com/reference/mcar_test.html).
+
+```{r}
+# 🩸
+```
+
+## Validating data
+
+Another way to assess our data is to check whether all values fall within possible/expected ranges, and to investigate those which do not. For example, a mass of 130g may have been written in a field notebook but then entered in Excel as 1300g, 13g, or -130g.
+
+We can check for errors like this by constructing many queries manually, or we can use the [{validate}](https://github.com/data-cleaning/validate) package.
+
+```{r}
+# 🩸
+bp_rules <- validator(
+  is_unique(pat_id),
+  `Month of birth` > 0 & `Month of birth` <= 12
+  )
+
+bp_validation <- confront(messy_bp, bp_rules)
+summary(bp_validation)
+violating(messy_bp, bp_validation)
+```
+
+You can write many more validation rules using [The Data Validation Cookbook](https://cran.r-project.org/web/packages/validate/vignettes/cookbook.html)!
+
+## Creating a new column
+
+We can create a new column using `mutate()`; most often, the new column will use an existing column to determine its value.
+
+Here is an example for penguins:
+
+```{r}
+# 🐧
+# new "mass-bill ratio" column:
+penguins %>% 
+  mutate(mass_beak_ratio = body_mass_g / bill_length_mm)
+
+# the above does the operation and prints the result...
+# but the result is not saved! you must assign to an object.
+# the below will overwrite our existing dataframe with the new one:
+penguins <- penguins %>% 
+  mutate(mass_beak_ratio = body_mass_g / bill_length_mm)
+```
+
+For the patient ID's in the bp data, we just need to generate new ID's; existing variables don't matter. We will also create a single birth_date variable and an age, using the date of the study:
+
+```{r}
+# 🩸
+bp_df <- messy_bp
+study_date <- as.Date("2020-10-20")
+
+bp_df <- clean_names(bp_df)    # see note below about cleaning names
+bp_df <- bp_df %>% mutate(pat_id = row_number())
+
+bp_df <- bp_df %>% 
+  mutate(birth_date = 
+           make_date(year=year_birth,
+                     month=month_of_birth,
+                     day=day_birth), 
+         .after=pat_id) %>% 
+  mutate(age = 
+           trunc((birth_date %--% study_date)/years(1)), 
+         .after=birth_date) %>% 
+  select(-c(year_birth,month_of_birth,day_birth,birth_date))
+```
+
+## Cleaning variable names
+
+The column headers used in Excel (for example) aren't always easy-to-use in R. Thankfully, the {janitor} package has a handy `clean_names()` function, which gives us lowercase, underscores instead of spaces, etc. For renaming individual variables (columns), use `rename()`.
+
+```{r}
+# 🩸
+clean_names(messy_bp)
+```
+
+## Creating factors
+
+Categorical variables should be encoded as factors.
+
+```{r}
+# 🩸
+bp_df <- bp_df %>% mutate(pat_id = as_factor(pat_id),
+         race = as_factor(race),
+         sex = as_factor(sex),
+         hispanic = as_factor(hispanic), 
+         .after=age)
+```
+
+Let's examine our factors. Finding multiple levels for "white," let's recode the `race` variable:
+
+```{r}
+# 🩸
+summary(bp_df)
+
+bp_df <- mutate(race = fct_collapse(race, `White` = c("White", "Caucasian", "WHITE")))
+```
+
+### Rename HR and BP; pivot visits longer
+
+Currently, we have one row per patient. We want 3 rows per patient (one per visit, with BP and HR columns), because this would give us one observation per row. It should look like this:
+
+| pat_id | visit | sbp | dbp | hr  |
+|--------|-------|-----|-----|-----|
+| 1      | 1     | 120 | 100 | 97  |
+| 1      | 2     | 116 | 99  | 95  |
+| 1      | 3     | 110 | 99  | 93  |
+| 2      | 1     | 130 | 104 | 99  |
+| 2      | 2     | 128 | 102 | 98  |
+| 2      | 3     | 126 | 100 | 94  |
+
+```{r}
+# 🩸
+bp_df <- bp_df %>% 
+  rename(v1_bp = bp_8, 
+         v2_bp = bp_10, 
+         v3_bp = bp_12) %>% 
+  mutate(v1_hr = as.character(hr_9), 
+         v2_hr = as.character(hr_11), 
+         v3_hr = as.character(hr_13)) %>%
+  select(-c(hr_9, hr_11, hr_13)) %>% 
+  pivot_longer(cols=c(ends_with(c("bp", "hr"))),
+               names_to="visit_measure",
+               values_to="value") %>% 
+  separate(visit_measure, into=c("visit", "measure"))
+```
+
+### Pivot measures wider
+
+`pivot_longer()` got rid of our separate visit columns, but BP and HR have ended up on separate rows. We have 6 rows per patient, instead of 3. So now we need to `pivot_wider()`, to transform the intermediate `measure` and `value` columns into BP and HR columns.
+
+```{r}
+# 🩸
+bp_df <- bp_df %>% 
+  pivot_wider(names_from=measure, values_from=value)
+```
+
+### Clean `visit`, `bp`, and `hr` columns
+
+`visit` should be a factor, and "v" is no longer needed. `bp` is currently character information which we can't easily analyze; let's separate it into two numeric variables, `sbp` and `dbp`. `hr` can now be converted to a numeric as well.
+
+```{r}
+bp_df <- bp_df %>% 
+  mutate(visit = as_factor(substr(visit,2,3))) %>% 
+  separate(bp, into=c("sbp", "dbp")) %>% 
+  mutate(sbp=as.numeric(sbp), 
+         dbp=as.numeric(dbp), 
+         hr=as.numeric(hr))
+```
+
+## Filtering, grouping, and summarizing our results
+
+```{r}
+
+```
+
+## Exporting data from R
+
+### Saving as CSV (readr)
+
+```{r}
+write_csv(bp_df, "bp-cleaned.csv")
+```
+
+### Saving as XLSX
+
+```{r}
+write_xlsx(bp_df, "bp-cleaned.xlsx")
+```
+
+### Saving as RDS and RData
+
+.RDS and .RData are two file formats specific to R.
+
+-   **RDS**, "R data structure" (I think), is for saving an R *object* (e.g., data frame) to disk. This file will be smaller than a CSV or XLSX and faster to load/save in R. This makes it a good choice for saving a dataset you're working on.
+-   **RData** is for saving your R *session* (Environment pane) to disk. Upon starting a session, this can be a faster way to restore your workspace than running your entire notebook again.
+
+To save an object as RDS:
+
+```{r}
+saveRDS(bp_df, "data/bp_df.RDS")
+```
+
+To load an RDS file into an R object:
+
+```{r}
+loaded_cvdrisk <- readRDS("data/bp_df.RDS")
+
+# what does this loaded RDS look like?
+str(loaded_cvdrisk)
+```
+
+To work with .RData files, the easiest way is to use the load/save icons at top left of the Environment pane .
+
+There is also an RStudio save-on-exit feature which preserves your session (as a .RData), so that next time you open RStudio, you can pick up where you left off. This is convenient, but requires diligent notebook accounting.
+
+![Tools \> Global Options... \> General](assets/config-rdata.png){fig-alt="Cropped screenshot of RStudio's global option. The selection is titled Workspace. There is a checkbox labeled \"Restore .RData into workspace at startup\". The box is unchecked. There is a drop-down menu reading \"Save workspace to .RData on exit:\". The option \"Never\" is selected." fig-align="center"}
+
+## Next steps
+
+-   Problem Set 2
+-   Next time: data visualization!
